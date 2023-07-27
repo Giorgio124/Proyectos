@@ -1,0 +1,237 @@
+---
+title: "Modelo de Riesgo financiero con GARCH"
+output: html_notebook
+---
+
+En este proyecto, construiremos un modelo para estudiar la naturaleza de la volatilidad en el caso de los rentabilidades de bonos del gobierno de los Estados Unidos. El riesgo financiero tiene muchas caras y se mide de diversas formas, pero por ahora, acordemos que es una medida de la posible pérdida en una inversión. En los mercados financieros, donde medimos los precios con frecuencia, la volatilidad (que es análoga a la desviación estándar) es una elección obvia para medir el riesgo.
+
+
+Estos datos incluyen toda la curva de rentabilidades. El rendimiento de un bono es el precio del dinero prestado. Cuanto mayor sea el rendimiento, más dinero se recibe en la inversión. La curva de rendimiento tiene muchas implicancias; en este caso, abarca desde 1 año hasta 30 años. Diferentes vencimientos tienen diferentes rentabilidades, pero los rentabilidades de vencimientos cercanas son relativamente cercanos entre sí y también se mueven juntos.
+
+
+  
+```{r}
+
+# Cargar los páquetes
+library(xts)
+library(readr)
+
+# cargar la data
+choose.files()
+
+yc_raw <- read_csv("C:\\Users\\User\\Desktop\\datasets\\proy 2\\FED-SVENY.csv")
+
+# convertir la data en formato xts 
+
+yc_all <- as.xts(x = yc_raw[, -1], order.by = yc_raw$Date)
+
+# mostrar solo las columanas  1, 5,  10, 20 y 30 
+yc_all_tail <- tail(yc_all[,c(1,5,10,20,30)])
+yc_all_tail
+
+
+```
+
+Visualicemos los rentabilidades a lo largo del tiempo. Veremos que los rentabilidades a largo plazo (por ejemplo, SVENY30) tienden a ser más estables a largo plazo, mientras que los rentabilidades a corto plazo (por ejemplo, SVENY01) varían mucho. Estos movimientos están relacionados con la política monetaria de la Reserva Federal (FED) y la economía.
+
+
+
+```{r}
+
+library(viridis)
+
+# Definir arcgumentos de el grafico
+yields  <- yc_all
+plot.type  <- 'single'
+plot.palette <- viridis(n=30)
+asset.names  <- colnames(yc_all)
+
+# Graficar la serie de tiempo
+plot.zoo(x = yields, plot.type = 'single', col = plot.palette)
+
+# Agregar la leyenda
+legend(x = "topleft", legend = asset.names,
+       col = plot.palette, cex = 0.45, lwd = 3)
+
+```
+ vemos el nivel de las rentabilidades de los bonos para diferentes vencimientos a lo largo del tiempo. Sin embargo, para comprender cómo evoluciona la volatilidad, debemos examinar los cambios en la serie temporal. Actualmente, tenemos los niveles de rendimiento; necesitamos calcular los cambios en los niveles de rendimiento. Esto se conoce como "diferenciación" en el análisis de series temporales. La diferenciación tiene la ventaja adicional de hacer que una serie temporal sea independiente del tiempo.
+
+La diferenciación se realiza tomando la diferencia entre cada punto de datos y su punto de datos anterior. Calcularemos la serie temporal diferenciada para los rentabilidades de los bonos para continuar con el análisis de la volatilidad. Una vez que tengamos los datos diferenciados, podremos estudiar cómo varían los rentabilidades y analizar los patrones de volatilidad.
+`
+```{r}
+
+# Differentiate the time series  
+ycc_all <- diff.xts(yc_all)
+
+# Show the tail of the 1st, 5th, 10th, 20th and 30th columns
+ycc_all_tail <- tail(ycc_all[,c(1,5,10,20,30)])
+ycc_all_tail
+
+
+```
+Ahora que tenemos una serie temporal de los cambios en las rentabilidades de los bonos del gobierno de los Estados Unidos, examinemosla visualmente.
+
+Al observar la serie temporal de los cambios de rendimiento en los gráficos anteriores, podemos ver indicios de que los rentabilidades que se suceden tienen algunas propiedades únicas:
+
+La dirección (positiva o negativa) de un cambio de rendimiento es principalmente independiente del cambio de rendimiento del día anterior. En otras palabras, no se puede predecir si el cambio de rendimiento del próximo día será positivo o negativo solo mirando la serie temporal.
+
+La magnitud del cambio de rendimiento es similar al cambio de rendimiento del día anterior. Esto significa que si los mercados están tranquilos hoy, esperamos que sean igualmente tranquilos mañana. Sin embargo, en un mercado volátil (durante una crisis), debemos esperar un día igualmente turbulento.
+
+En resumen, estos patrones sugieren que el comportamiento de los cambios de rendimiento no está fuertemente correlacionado de un día a otro en términos de dirección (positiva o negativa), pero la magnitud de los cambios tiende a mantenerse similar al día anterior. Esto tiene implicaciones importantes para el análisis de la volatilidad y el riesgo en los mercados financieros.
+
+
+```{r}
+# Define the plot parameters
+yield.changes <- ycc_all
+plot.type <- 'multiple'
+
+
+# Plot the differentiated time series
+plot.zoo(x = yield.changes, plot.type = 'multiple', 
+     ylim = c(-0.5, 0.5), cex.axis = 0.7, 
+     ylab = 1:30, col = plot.palette)
+```
+Las propiedades estadísticas que visualizamos anteriormente pueden medirse mediante herramientas analíticas. El método más sencillo es probar la autocorrelación. La autocorrelación mide cómo el pasado de un punto de datos determina el futuro de una serie temporal.
+
+Si la autocorrelación está cerca de 1, el valor del día siguiente será muy cercano al valor de hoy.
+Si la autocorrelación está cerca de 0, el valor del día siguiente no se verá afectado por el valor de hoy.
+
+Dado que estamos interesados en la evolución reciente de los rentabilidades de los bonos, filtraremos la serie temporal para obtener datos desde el año 2000 en adelante. Esto nos permitirá analizar cómo el pasado influye en los rentabilidades actuales en el período más relevante para nuestra investigación.
+
+
+```{r}
+# Filter for changes in and after 2000
+ycc <- ycc_all['2000/']
+
+# Save the 1-year and 20-year maturity yield changes into separate variables
+x_1 <- ycc[,'SVENY01']
+x_20 <- ycc[,'SVENY20']
+
+# Plot the autocorrelations of the yield changes
+par(mfrow=c(2,2))
+acf_1 <- acf(x_1)
+acf_20 <- acf(x_20)
+
+# Plot the autocorrelations of the absolute changes of yields
+acf_abs_1 <- acf(abs(x_1))
+acf_abs_20 <- acf(abs(x_20))
+```
+Un modelo de AutoRegressive Conditional Heteroskedasticity Generalizado (GARCH) es la herramienta econométrica más conocida para manejar la volatilidad cambiante en datos de series temporales financieras. Este modelo asume la existencia de una variable de volatilidad oculta que tiene un promedio a largo plazo al cual tiende a regresar, mientras que su comportamiento a corto plazo es afectado por los rentabilidades pasados.
+
+La forma más popular del modelo GARCH asume que la volatilidad sigue este proceso:
+
+σ2t = ω + α ⋅ ε2t-1 + β ⋅ σ2t-1
+
+Donde σ2t representa la volatilidad en el tiempo t, εt-1 es el rendimiento del día anterior, y α, β y ω son parámetros estimados.
+
+Para modelar GARCH, utilizaremos el paquete "rugarch" desarrollado por Alexios Ghalanos. Este paquete es ampliamente utilizado en análisis financiero y econometría para modelar la volatilidad y el riesgo en datos de series temporales.
+
+
+```{r}
+
+library(rugarch)
+
+# Specify the GARCH model with the skewed t-distribution
+spec <- ugarchspec(distribution.model = 'sstd')
+
+# Fit the model
+fit_1 <- ugarchfit(x_1, spec = spec)
+
+# Save the volatilities and the rescaled residuals
+vol_1 <- sigma(fit_1)
+res_1 <- scale(residuals(fit_1, standardize = TRUE)) * sd(x_1) + mean(x_1)
+
+# Plot the yield changes with the estimated volatilities and residuals
+merge_1 <- merge.xts(x_1, vol_1, res_1)
+plot.zoo(merge_1)
+
+```
+
+Realicemos lo mismo para la madurez de 20 años. Como podemos ver en el gráfico de la Tarea 6, los rentabilidades de los bonos con diversas madureces muestran características similares pero ligeramente diferentes. Estas diferencias pueden ser el resultado de múltiples factores, como la política monetaria de la Reserva Federal (FED) o el hecho de que los inversores podrían ser distintos.
+
+¿Existen diferencias entre los gráficos de la madurez de 1 año y la madurez de 20 años?
+
+Para responder a esta pregunta, sería necesario visualizar y comparar los gráficos de ambas madureces. Podríamos analizar si las tendencias, la volatilidad y los patrones son similares o diferentes entre ambas madureces. También podríamos llevar a cabo pruebas estadísticas y análisis más detallados para identificar cualquier diferencia significativa en el comportamiento de los rentabilidades a lo largo del tiempo.
+
+
+```{r}
+fit_20 <- ugarchfit(x_20, spec = spec)
+
+# Save the volatilities and the rescaled residuals
+vol_20 <- sigma(fit_20)
+res_20 <- scale(residuals(fit_20, standardize = TRUE)) * sd(x_20) + mean(x_20)
+
+# Plot the yield changes with the estimated volatilities and residuals
+merge_20 <- merge.xts(x_20, vol_20, res_20)
+plot.zoo(merge_20)
+```
+Según los gráficos de la Tarea 6 y la Tarea 7, podemos observar que el modelo GARCH de 1 año muestra un comportamiento similar pero más errático en comparación con el modelo GARCH de 20 años. No solo el modelo de 1 año tiene una mayor volatilidad, sino que la volatilidad de su volatilidad es más amplia que la del modelo de 20 años. Esto nos lleva a dos hechos estadísticos de los mercados financieros que aún no se han mencionado:
+
+La distribución incondicional (antes de aplicar GARCH) de las diferencias de rendimiento tiene colas más pesadas que la distribución normal.
+La distribución de las diferencias de rendimiento ajustadas por el modelo GARCH tiene colas más ligeras que la distribución incondicional, pero todavía son más pesadas que la distribución normal.
+Ahora, analicemos lo que hizo el modelo GARCH ajustado con la distribución que hemos examinado.
+
+Cuando aplicamos el modelo GARCH a los datos, lo que hizo fue capturar y modelar la volatilidad cambiante en los rentabilidades a lo largo del tiempo. La presencia de colas más pesadas en la distribución incondicional indica que los rentabilidades tienen tendencia a tener movimientos más extremos (tanto positivos como negativos) que los que cabrían esperar bajo una distribución normal. El modelo GARCH intenta explicar y reducir esta característica de la volatilidad cambiante y las colas pesadas.
+
+El modelo GARCH estima parámetros que ayudan a ajustar la volatilidad condicional de los rentabilidades en función de sus propias observaciones pasadas. Esto permite que la volatilidad varíe a lo largo del tiempo y refleje los patrones observados en la serie temporal. Sin embargo, aunque el modelo GARCH puede suavizar las colas pesadas en la distribución, aún se conservan colas más ligeras en comparación con una distribución normal.
+
+En resumen, el modelo GARCH captura la naturaleza cambiante de la volatilidad y hace que la distribución ajustada de los rentabilidades sea más realista en términos de las colas, aunque todavía se observa cierta persistencia de colas más pesadas en comparación con una distribución normal. Esto es coherente con las características peculiares y la complejidad de los mercados financieros.
+
+
+```{r}
+
+# Calculate the kernel density for the 1-year maturity and residuals
+density_x_1 <- density(x_1)
+density_res_1 <- density(res_1)
+
+# Plot the density diagram for the 1-year maturity and residuals
+plot(density_x_1)
+lines(density_res_1, col = "red")
+
+# Add the normal distribution to the plot
+norm_dist <- dnorm(seq(-0.4, 0.4, by = .01), mean = mean(x_1), sd = sd(x_1))
+lines(seq(-0.4, 0.4, by = .01), 
+      norm_dist, 
+      col = "darkgreen"
+     )
+
+# Add legend
+legend <- c("Before GARCH", "After GARCH", "Normal Distribution")
+legend("topleft", legend = legend, 
+       col = c("black", "red", "darkgreen"), lty=c(1,1))
+
+```
+
+
+P1: ¿El modelo GARCH reveló cómo cambia la volatilidad con el tiempo? # Sí o No?
+(Q1 <- "Sí")
+
+P2: ¿El modelo GARCH acercó los residuos a una distribución normal? Sí o No?
+(Q2 <- "Sí")
+
+P3: ¿Qué serie temporal de cambios de rendimiento se desvía más de un proceso de ruido blanco distribuido normalmente? Elije 1 o 20.
+(Q3 <- 1)
+
+En general, el modelo GARCH tuvo éxito en revelar cómo cambia la volatilidad con el tiempo y en acercar los residuos a una distribución más normal. La serie temporal de cambios de rendimiento con madurez de 1 año parece desviarse más de un proceso de ruido blanco distribuido normalmente en comparación con la serie de cambios de rendimiento con madurez de 20 años.
+
+```{r}
+
+# Define the data to plot: the 1-year maturity yield changes and residuals 
+data_orig <- x_1
+data_res <- res_1
+
+# Define the benchmark distribution
+distribution <- qnorm
+
+# Make the Q-Q plot of original data with the line of normal distribution
+qqnorm(data_orig, ylim = c(-0.5, 0.5))
+qqline(data_orig, distribution = distribution, col = "darkgreen")
+
+# Make the Q-Q plot of GARCH residuals with the line of normal distribution
+par(new=TRUE)
+qqnorm(data_res * 0.614256270265139, col = "red", ylim = c(-0.5, 0.5))
+qqline(data_res * 0.614256270265139, distribution = distribution, col = "darkgreen")
+legend("topleft", c("Before GARCH", "After GARCH"), col = c("black", "red"), pch=c(1,1))
+
+
+``
